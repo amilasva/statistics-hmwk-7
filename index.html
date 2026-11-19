@@ -1,0 +1,387 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Statistical Independence | Interactive Lab</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="shell">
+
+<header class="hero">
+  <div class="eyebrow">STATISTICS · INTERACTIVE LAB</div>
+  <h1>Are these variables <em>independent?</em></h1>
+  <p>
+    Explore the relationship between two categorical variables
+    through observed frequencies, conditional probabilities,
+    and the chi-square test.
+  </p>
+  <div class="hero-tags">
+    <span>Contingency tables</span>
+    <span>Conditional probability</span>
+    <span>χ² test</span>
+  </div>
+</header>
+
+<section class="panel theory-panel" id="theory">
+  <div class="section-heading">
+    <div>
+      <span class="index">01 / MATHEMATICAL FOUNDATIONS</span>
+      <h2>Understanding independence</h2>
+    </div>
+    <span class="pill">Theory</span>
+  </div>
+
+  <p class="muted lead">
+    We observe two categorical variables, X and F.
+    The central question is whether knowing the value of X
+    changes what we can predict about F.
+  </p>
+
+  <div class="theory-grid">
+    <article class="theory-card">
+      <div class="theory-number">A · PROBABILITY</div>
+      <h3>Independence of random variables</h3>
+      <p>
+        For every possible pair of categories, the joint
+        probability equals the product of the marginal
+        probabilities.
+      </p>
+      <div class="mathbox">
+        P(X = x, F = f) = P(X = x) × P(F = f)
+      </div>
+      <p>
+        Equivalently, when P(X = x) &gt; 0, knowing X
+        does not change the probability of F:
+      </p>
+      <div class="mathbox">
+        P(F = f | X = x) = P(F = f)
+      </div>
+    </article>
+
+    <article class="theory-card">
+      <div class="theory-number">B · STATISTICS</div>
+      <h3>Samples are not populations</h3>
+      <p>
+        Even if variables are independent in the population,
+        sample counts may differ from their expected values
+        because of random sampling.
+      </p>
+      <div class="mathbox">
+        H₀: X ⟂ F &nbsp; | &nbsp;
+        H₁: X and F are associated
+      </div>
+      <p>
+        The chi-square test evaluates how compatible our
+        observed sample is with the independence hypothesis;
+        it cannot prove independence.
+      </p>
+    </article>
+  </div>
+
+  <div class="concept-steps">
+    <h3>From raw data to probability</h3>
+    <div class="steps-grid">
+      <div>
+        <span class="step-badge">1</span>
+        <h4>Joint frequency</h4>
+        <div class="mathbox">p̂ᵢⱼ = Oᵢⱼ / N</div>
+        <p>
+          Share of observations belonging to both
+          categories i and j.
+        </p>
+      </div>
+      <div>
+        <span class="step-badge">2</span>
+        <h4>Marginal frequency</h4>
+        <div class="mathbox">p̂ᵢ· = Rᵢ / N</div>
+        <p>
+          Share belonging to a category of X,
+          regardless of F (or vice versa).
+        </p>
+      </div>
+      <div>
+        <span class="step-badge">3</span>
+        <h4>Conditional frequency</h4>
+        <div class="mathbox">p̂ⱼ|ᵢ = Oᵢⱼ / Rᵢ</div>
+        <p>
+          Within one category of X, the proportion
+          falling in category j of F.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="mini-example">
+    <div>
+      <span class="index">ILLUSTRATION</span>
+      <h3>Why conditioning matters</h3>
+      <p>
+        Suppose 60 students are observed. Of 30 group learners,
+        24 pass; of 30 solo learners, 12 pass.
+        The overall pass rate is 36/60 = 60%,
+        but the pass rate is 80% among group learners
+        and 40% among solo learners.
+      </p>
+      <p>
+        <b>80% ≠ 40%</b>: in this sample, exam outcome
+        depends on which study-method group we examine.
+        This is descriptive association, not proof that
+        studying in groups causes success.
+      </p>
+    </div>
+
+    <div class="mini-bars">
+      <div>
+        <span>Group learners</span>
+        <div class="track">
+          <div style="width:80%;background:#168d94"></div>
+        </div>
+        <b>80% pass</b>
+      </div>
+      <div>
+        <span>Solo learners</span>
+        <div class="track">
+          <div style="width:40%;background:#8072cb"></div>
+        </div>
+        <b>40% pass</b>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="section-heading">
+    <div>
+      <span class="index">02 / DATA</span>
+      <h2>Choose a dataset</h2>
+    </div>
+    <span class="pill">Editable</span>
+  </div>
+
+  <p class="muted">
+    Select an example or enter your own paired categorical
+    observations. Each row is one observation: X,F.
+  </p>
+
+  <div class="toolbar">
+    <label for="dataset">Example dataset</label>
+    <select id="dataset">
+      <option value="study">Study method × Exam outcome</option>
+      <option value="transport">Transport × Coffee preference</option>
+      <option value="exercise">Exercise × Sleep quality</option>
+      <option value="custom">My own data</option>
+    </select>
+    <button id="run" class="primary">Analyze data ↗</button>
+  </div>
+
+  <div class="two-col">
+    <div>
+      <label for="raw">Paired observations (CSV)</label>
+      <textarea id="raw" spellcheck="false"
+        aria-label="CSV paired observations"></textarea>
+      <p class="hint">
+        First row: X,F. Separate columns with a comma.
+        One pair per line. Maximum 5,000 observations.
+      </p>
+    </div>
+
+    <div class="info">
+      <strong>What are we testing?</strong>
+      <p><b>H₀:</b> X and F are independent.</p>
+      <p><b>H₁:</b> X and F are associated.</p>
+      <p>
+        Significance level <b>α = 0.05</b>.
+        The chi-square test compares observed counts
+        to the counts expected if the variables
+        were independent.
+      </p>
+      <div id="data-summary" class="summary"></div>
+    </div>
+  </div>
+
+  <div id="error" role="alert" class="error" hidden></div>
+</section>
+
+<section class="panel">
+  <div class="section-heading">
+    <div>
+      <span class="index">03 / FREQUENCIES</span>
+      <h2>How often does each pair occur?</h2>
+    </div>
+  </div>
+
+  <div class="tabs" id="frequency-tabs">
+    <button class="active" data-mode="observed">
+      Observed counts
+    </button>
+    <button data-mode="joint">Joint proportions</button>
+    <button data-mode="row">P(F | X)</button>
+    <button data-mode="column">P(X | F)</button>
+  </div>
+
+  <p id="table-explain" class="muted"></p>
+  <div id="frequency-table" class="table-wrap"></div>
+  <div class="worked" id="frequency-worked"
+    aria-live="polite"></div>
+
+  <div class="note">
+    The rightmost column and bottom row contain marginal
+    frequencies. Conditional frequencies normalize within
+    the relevant row or column.
+  </div>
+</section>
+
+<section class="panel">
+  <div class="section-heading">
+    <div>
+      <span class="index">04 / EXPECTATION</span>
+      <h2>If X and F were independent...</h2>
+    </div>
+  </div>
+
+  <p class="muted">
+    Expected count for each cell =
+    (row total × column total) / sample size.
+  </p>
+
+  <div id="expected-table" class="table-wrap"></div>
+  <div class="worked" id="expected-worked"
+    aria-live="polite"></div>
+
+  <div class="chart-heading">
+    <h3>Observed vs. expected</h3>
+    <span>Each group is one X–F combination</span>
+  </div>
+
+  <div class="legend">
+    <span><i class="dot observed"></i>Observed</span>
+    <span><i class="dot expected"></i>Expected</span>
+  </div>
+
+  <div id="comparison-chart" class="chart"
+    role="img"
+    aria-label="Bar chart comparing observed and expected cell counts">
+  </div>
+</section>
+
+<section class="panel">
+  <div class="section-heading">
+    <div>
+      <span class="index">05 / INFERENCE</span>
+      <h2>Chi-square independence test</h2>
+    </div>
+  </div>
+
+  <div class="metrics">
+    <div class="metric">
+      <span>χ² statistic</span>
+      <strong id="chi">—</strong>
+    </div>
+    <div class="metric">
+      <span>Degrees of freedom</span>
+      <strong id="df">—</strong>
+    </div>
+    <div class="metric">
+      <span>p-value</span>
+      <strong id="pvalue">—</strong>
+    </div>
+    <div class="metric">
+      <span>Cramér's V</span>
+      <strong id="cramer">—</strong>
+    </div>
+  </div>
+
+  <div class="formula">
+    χ² = Σ (Observed − Expected)² / Expected
+    <span> · </span>
+    df = (rows − 1)(columns − 1)
+  </div>
+
+  <div class="worked">
+    <h3>How the test works</h3>
+    <p>
+      <b>Step 1:</b> Under H₀, calculate each expected count
+      Eᵢⱼ = (row total × column total) / N.
+    </p>
+    <p>
+      <b>Step 2:</b> For every cell, calculate
+      (Oᵢⱼ − Eᵢⱼ)² / Eᵢⱼ and add the contributions.
+    </p>
+    <p>
+      <b>Step 3:</b> Compare the statistic to a chi-square
+      distribution with (r − 1)(c − 1) degrees of freedom.
+      A small p-value means the sample would be unusual
+      if H₀ were true.
+    </p>
+    <div id="chi-worked" class="mathbox"></div>
+  </div>
+
+  <div id="decision" class="decision"
+    aria-live="polite"></div>
+  <div id="caution" class="note"></div>
+</section>
+
+<section class="panel">
+  <div class="section-heading">
+    <div>
+      <span class="index">06 / INTERPRETATION</span>
+      <h2>What does independence mean?</h2>
+    </div>
+  </div>
+
+  <p class="muted">
+    A decision about a hypothesis is not the same as a
+    statement about cause and effect. The strength and
+    meaning of evidence depend on the data and sampling process.
+  </p>
+
+  <div class="concept-grid">
+    <div class="concept">
+      <h3>In probability</h3>
+      <p>
+        Two events are independent when knowing one
+        does not change the probability of the other:
+        <b>P(X = x, F = f) = P(X = x)P(F = f)</b>
+        for every pair.
+      </p>
+    </div>
+
+    <div class="concept">
+      <h3>In observed data</h3>
+      <p>
+        Independence means the distribution of F is
+        the same across the categories of X.
+        Small differences can arise through random sampling.
+      </p>
+    </div>
+
+    <div class="concept">
+      <h3>Association ≠ causation</h3>
+      <p>
+        A statistically significant association does not
+        establish that X causes F. Confounding variables,
+        selection bias, or reverse causality may explain
+        a relationship.
+      </p>
+    </div>
+  </div>
+
+  <div class="takeaway">
+    <h3>Reading this dataset</h3>
+    <p id="interpretation">
+      Run the analysis to see an interpretation.
+    </p>
+  </div>
+</section>
+
+<footer>
+  STATISTICAL INDEPENDENCE · INTERACTIVE EXPLORATION
+</footer>
+
+</main>
+<script src="script.js"></script>
+</body>
+</html>

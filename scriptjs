@@ -1,0 +1,612 @@
+
+const $ = id => document.getElementById(id);
+
+const datasets = {
+  study: {
+    rows: [
+      ['Group', 'Pass', 24],
+      ['Group', 'Fail', 6],
+      ['Solo', 'Pass', 12],
+      ['Solo', 'Fail', 18]
+    ]
+  },
+  transport: {
+    rows: [
+      ['Bus', 'Coffee', 15],
+      ['Bus', 'Tea', 15],
+      ['Bike', 'Coffee', 15],
+      ['Bike', 'Tea', 15]
+    ]
+  },
+  exercise: {
+    rows: [
+      ['Regular', 'Good', 28],
+      ['Regular', 'Poor', 7],
+      ['Rare', 'Good', 12],
+      ['Rare', 'Poor', 23]
+    ]
+  }
+};
+
+let state = null;
+let mode = 'observed';
+
+function toCSV(d) {
+  const out = ['X,F'];
+
+  for (const [x, f, n] of d.rows) {
+    for (let i = 0; i < n; i++) {
+      out.push(`${x},${f}`);
+    }
+  }
+
+  return out.join('\n');
+}
+
+function loadExample(key) {
+  if (key === 'custom') {
+    $('raw').value =
+      'X,F\nA,Yes\nA,No\nB,Yes\nB,No';
+  } else {
+    $('raw').value = toCSV(datasets[key]);
+  }
+
+  analyze();
+}
+
+function parse() {
+  const lines = $('raw').value.trim()
+    .split(/\r?\n/)
+    .filter(s => s.trim());
+
+  if (lines.length < 3) {
+    throw Error(
+      'Enter a header and at least two observations.'
+    );
+  }
+
+  if (lines.length > 5001) {
+    throw Error('Maximum 5,000 observations supported.');
+  }
+
+  const header = lines[0]
+    .split(',')
+    .map(x => x.trim());
+
+  if (header.length !== 2) {
+    throw Error(
+      'Header must contain exactly two comma-separated variable names.'
+    );
+  }
+
+  const pairs = lines.slice(1).map((line, i) => {
+    const parts = line.split(',').map(s => s.trim());
+
+    if (parts.length !== 2 || parts.some(s => !s)) {
+      throw Error(
+        `Invalid pair on line ${i + 2}. Use X,F.`
+      );
+    }
+
+    return parts;
+  });
+
+  return {
+    pairs,
+    xName: header[0] || 'X',
+    fName: header[1] || 'F'
+  };
+}
+
+// Logarithm of gamma function
+function gammaln(z) {
+  const p = [
+    0.99999999999980993,
+    676.5203681218851,
+    -1259.1392167224028,
+    771.32342877765313,
+    -176.6150291621406,
+    12.507343278686905,
+    -.13857109526572012,
+    9.984369578019572e-6,
+    1.5056327351493116e-7
+  ];
+
+  if (z < .5) {
+    return Math.log(Math.PI)
+      - Math.log(Math.sin(Math.PI * z))
+      - gammaln(1 - z);
+  }
+
+  z -= 1;
+  let x = p[0];
+
+  for (let i = 1; i < p.length; i++) {
+    x += p[i] / (z + i);
+  }
+
+  let t = z + 7.5;
+
+  return .5 * Math.log(2 * Math.PI)
+    + (z + .5) * Math.log(t)
+    - t + Math.log(x);
+}
+
+// Upper regularized incomplete gamma function
+function gammaQ(a, x) {
+  if (x <= 0) return 1;
+
+  const eps = 1e-13;
+  const fpmin = 1e-300;
+
+  if (x < a + 1) {
+    let sum = 1 / a;
+    let del = sum;
+    let ap = a;
+
+    for (let n = 1; n < 1000; n++) {
+      ap++;
+      del *= x / ap;
+      sum += del;
+
+      if (Math.abs(del) < Math.abs(sum) * eps) {
+        break;
+      }
+    }
+
+    return Math.max(0, Math.min(1,
+      1 - sum * Math.exp(
+        -x + a * Math.log(x) - gammaln(a)
+      )
+    ));
+  }
+
+  let b = x + 1 - a;
+  let c = 1 / fpmin;
+  let d = 1 / b;
+  let h = d;
+
+  for (let i = 1; i < 1000; i++) {
+    let an = -i * (i - a);
+    b += 2;
+    d = an * d + b;
+
+    if (Math.abs(d) < fpmin) d = fpmin;
+
+    c = b + an / c;
+
+    if (Math.abs(c) < fpmin) c = fpmin;
+
+    d = 1 / d;
+    let delta = d * c;
+    h *= delta;
+
+    if (Math.abs(delta - 1) < eps) break;
+  }
+
+  return Math.max(0, Math.min(1,
+    Math.exp(
+      -x + a * Math.log(x) - gammaln(a)
+    ) * h
+  ));
+}
+
+// Construct contingency table
+function compute(data) {
+  const xs = [
+    ...new Set(data.pairs.map(p => p[0]))
+  ];
+
+  const fs = [
+    ...new Set(data.pairs.map(p => p[1]))
+  ];
+
+  if (xs.length < 2 || fs.length < 2) {
+    throw Error(
+      'Both variables need at least two different categories.'
+    );
+  }
+
+  if (xs.length * fs.length > 80) {
+    throw Error(
+      'Use at most 80 combinations of categories.'
+    );
+  }
+
+  const counts = xs.map(x =>
+    fs.map(f =>
+      data.pairs.filter(
+        p => p[0] === x && p[1] === f
+      ).length
+    )
+  );
+
+  const rows = counts.map(r =>
+    r.reduce((a, b) => a + b, 0)
+  );
+
+  const cols = fs.map((_, j) =>
+    counts.reduce((a, r) => a + r[j], 0)
+  );
+
+  const n = data.pairs.length;
+
+  const expected = rows.map(t =>
+    cols.map(c => t * c / n)
+  );
+
+  let chi = 0;
+
+  for (let i = 0; i < xs.length; i++) {
+    for (let j = 0; j < fs.length; j++) {
+      chi += (
+        (counts[i][j] - expected[i][j]) ** 2
+      ) / expected[i][j];
+    }
+  }
+
+  const df = (xs.length - 1) * (fs.length - 1);
+  const p = gammaQ(df / 2, chi / 2);
+
+  const v = Math.sqrt(
+    chi / (
+      n * Math.min(xs.length - 1, fs.length - 1)
+    )
+  );
+
+  return {
+    ...data,
+    xs,
+    fs,
+    counts,
+    rows,
+    cols,
+    n,
+    expected,
+    chi,
+    df,
+    p,
+    v
+  };
+}
+
+function fmt(v, d = 3) {
+  return Number(v).toFixed(d);
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[c]));
+}
+
+// Build frequency tables
+function tableHTML(s, type) {
+  const {
+    xs, fs, counts, rows, cols, n, expected
+  } = s;
+
+  const isExpected = type === 'expected';
+
+  const cell = (i, j) => {
+    if (isExpected) {
+      return fmt(expected[i][j], 2);
+    }
+
+    if (type === 'observed') {
+      return counts[i][j];
+    }
+
+    if (type === 'joint') {
+      return fmt(counts[i][j] / n, 3);
+    }
+
+    if (type === 'row') {
+      return fmt(counts[i][j] / rows[i], 3);
+    }
+
+    return fmt(counts[i][j] / cols[j], 3);
+  };
+
+  let html = `
+    <table>
+      <thead>
+        <tr>
+          <th>
+            ${esc(s.xName)} ↓ / ${esc(s.fName)} →
+          </th>
+          ${fs.map(f =>
+            `<th>${esc(f)}</th>`
+          ).join('')}
+          <th>Total</th>
+        </tr>
+      </thead>
+      <tbody>
+  `;
+
+  xs.forEach((x, i) => {
+    html += `<tr><th>${esc(x)}</th>`;
+
+    fs.forEach((_, j) => {
+      html += `<td>${cell(i, j)}</td>`;
+    });
+
+    const total =
+      type === 'joint' ? fmt(rows[i] / n) :
+      type === 'row' ? '1.000' :
+      type === 'column' ? '—' :
+      isExpected ? fmt(rows[i], 2) :
+      rows[i];
+
+    html += `<td><b>${total}</b></td></tr>`;
+  });
+
+  html += `
+    </tbody>
+    <tfoot>
+      <tr><th>Total</th>
+  `;
+
+  fs.forEach((_, j) => {
+    const total =
+      type === 'joint' ? fmt(cols[j] / n) :
+      type === 'column' ? '1.000' :
+      type === 'row' ? '—' :
+      isExpected ? fmt(cols[j], 2) :
+      cols[j];
+
+    html += `<td>${total}</td>`;
+  });
+
+  const grandTotal =
+    type === 'joint' ? '1.000' :
+    type === 'row' || type === 'column' ? '—' :
+    isExpected ? fmt(n, 2) :
+    n;
+
+  html += `
+    <td>${grandTotal}</td>
+    </tr></tfoot></table>
+  `;
+
+  return html;
+}
+
+// Update all interactive results
+function render() {
+  const s = state;
+
+  $('data-summary').textContent =
+    `${s.n} observations · ` +
+    `${s.xs.length} X categories · ` +
+    `${s.fs.length} F categories`;
+
+  $('frequency-table').innerHTML =
+    tableHTML(s, mode);
+
+  $('expected-table').innerHTML =
+    tableHTML(s, 'expected');
+
+  const descriptions = {
+    observed:
+      'The number of observations in each category combination.',
+    joint:
+      'Each count divided by the total sample size N.',
+    row:
+      'Within each X category, the distribution across F categories.',
+    column:
+      'Within each F category, the distribution across X categories.'
+  };
+
+  $('table-explain').textContent = descriptions[mode];
+
+  const firstO = s.counts[0][0];
+  const firstE = s.expected[0][0];
+  const firstR = s.rows[0];
+  const firstC = s.cols[0];
+
+  // Worked frequency example
+  $('frequency-worked').innerHTML = `
+    <h3>Reading a cell from the current dataset</h3>
+    <p>
+      <b>${esc(s.xs[0])} × ${esc(s.fs[0])}:</b>
+      ${firstO} observations out of ${s.n}.
+    </p>
+    <p>
+      Joint proportion =
+      ${firstO}/${s.n} =
+      <b>${fmt(firstO / s.n, 3)}</b>.
+    </p>
+    <p>
+      Marginal proportion for ${esc(s.xs[0])} =
+      ${firstR}/${s.n} =
+      <b>${fmt(firstR / s.n, 3)}</b>.
+    </p>
+    <p>
+      Conditional proportion
+      P(${esc(s.fs[0])} | ${esc(s.xs[0])}) =
+      ${firstO}/${firstR} =
+      <b>${fmt(firstO / firstR, 3)}</b>.
+    </p>
+  `;
+
+  // Expected count example
+  $('expected-worked').innerHTML = `
+    <h3>One expected count, step by step</h3>
+    <p>
+      For <b>${esc(s.xs[0])} × ${esc(s.fs[0])}</b>,
+      row total = ${firstR},
+      column total = ${firstC},
+      N = ${s.n}.
+    </p>
+    <div class="mathbox">
+      E = (${firstR} × ${firstC}) / ${s.n}
+      = ${fmt(firstE, 2)}
+    </div>
+    <p>
+      Observed = ${firstO};
+      expected under independence = ${fmt(firstE, 2)}.
+    </p>
+  `;
+
+  // Chi-square contribution example
+  const contribution =
+    (firstO - firstE) ** 2 / firstE;
+
+  $('chi-worked').textContent =
+    `First cell contribution = ` +
+    `(${firstO} − ${fmt(firstE, 2)})² / ` +
+    `${fmt(firstE, 2)} = ${fmt(contribution, 3)}. ` +
+    `Sum across all cells = ${fmt(s.chi, 3)}.`;
+
+  $('chi').textContent = fmt(s.chi);
+  $('df').textContent = s.df;
+
+  $('pvalue').textContent =
+    s.p < .0001 ? '< 0.0001' : fmt(s.p, 4);
+
+  $('cramer').textContent = fmt(s.v);
+
+  const reject = s.p < .05;
+
+  $('decision').className =
+    'decision' + (reject ? ' warn' : '');
+
+  const decisionTitle = reject
+    ? 'Reject H₀ — evidence of association'
+    : 'Do not reject H₀ — insufficient evidence of association';
+
+  const decisionText = reject
+    ? 'The observed differences are unlikely under the independence model at α = 0.05.'
+    : 'At α = 0.05, this sample does not provide sufficient evidence to reject independence. This does not prove independence.';
+
+  $('decision').innerHTML = `
+    <strong>${decisionTitle}</strong>
+    <div>${decisionText}</div>
+  `;
+
+  // Check expected frequencies
+  const minExp = Math.min(...s.expected.flat());
+
+  const under5 = s.expected.flat()
+    .filter(x => x < 5).length;
+
+  $('caution').textContent = under5
+    ? `Caution: ${under5} of ` +
+      `${s.xs.length * s.fs.length} expected cells ` +
+      `are below 5 (minimum ${fmt(minExp, 2)}). ` +
+      `The asymptotic chi-square p-value may be ` +
+      `unreliable. Consider an exact or Monte Carlo test.`
+    : 'All expected cell counts are at least 5, ' +
+      'supporting the usual chi-square approximation. ' +
+      'Observations must also be independently sampled.';
+
+  const pText = s.p < .0001
+    ? '< 0.0001'
+    : '= ' + fmt(s.p, 4);
+
+  const associationText = reject
+    ? 'The data show a statistically detectable association.'
+    : 'The data do not show a statistically detectable association at the 5% level.';
+
+  $('interpretation').textContent =
+    `For ${s.xName} and ${s.fName}, ` +
+    `the test gives χ²(${s.df}) = ${fmt(s.chi)}, ` +
+    `p ${pText}. ${associationText} ` +
+    `Cramér's V = ${fmt(s.v)} summarizes ` +
+    `the strength of the observed association. ` +
+    `The test alone cannot establish a causal relationship.`;
+
+  // Observed vs expected chart
+  const max = Math.max(
+    ...s.counts.flat(),
+    ...s.expected.flat(),
+    1
+  );
+
+  let bars = '';
+
+  s.xs.forEach((x, i) => {
+    s.fs.forEach((f, j) => {
+      const a = s.counts[i][j];
+      const b = s.expected[i][j];
+
+      const observedHeight =
+        Math.max(2, a / max * 175);
+
+      const expectedHeight =
+        Math.max(2, b / max * 175);
+
+      bars += `
+        <div class="chart-item">
+          <div class="bars">
+            <div class="bar obs"
+              style="height:${observedHeight}px"
+              title="Observed: ${a}">
+              <span>${a}</span>
+            </div>
+
+            <div class="bar exp"
+              style="height:${expectedHeight}px"
+              title="Expected: ${fmt(b, 2)}">
+              <span>${fmt(b, 1)}</span>
+            </div>
+          </div>
+
+          <div class="chart-label">
+            ${esc(x)}<br>× ${esc(f)}
+          </div>
+        </div>
+      `;
+    });
+  });
+
+  $('comparison-chart').innerHTML = bars;
+}
+
+function analyze() {
+  try {
+    state = compute(parse());
+    $('error').hidden = true;
+    render();
+  } catch (e) {
+    $('error').textContent = e.message;
+    $('error').hidden = false;
+  }
+}
+
+// Dataset selector
+$('dataset').addEventListener('change', e => {
+  loadExample(e.target.value);
+});
+
+// Analyze button
+$('run').addEventListener('click', analyze);
+
+// Frequency table tabs
+$('frequency-tabs').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-mode]');
+
+  if (!btn) return;
+
+  mode = btn.dataset.mode;
+
+  document.querySelectorAll('#frequency-tabs button')
+    .forEach(b => {
+      b.classList.toggle('active', b === btn);
+    });
+
+  if (state) render();
+});
+
+// Custom data
+$('raw').addEventListener('input', () => {
+  $('dataset').value = 'custom';
+});
+
+// Start with the first example
+loadExample('study');
